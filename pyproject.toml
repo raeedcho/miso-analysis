@@ -1,0 +1,38 @@
+[build-system]
+requires = [
+    "setuptools>=61.0.0",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "miso-analysis"
+version = "0.1.0"
+description = "Code to analyze neural data for and from MiSO"
+authors = [
+    { name = "Raeed Chowdhury" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "seaborn",
+    "matplotlib",
+    "scikit-learn",
+    "omegaconf",
+    "altair",
+    "dvc",
+    "jupyter",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "isort"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
