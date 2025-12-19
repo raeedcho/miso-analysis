@@ -7,6 +7,7 @@ import re
 import smile_extract
 import logging
 from pathlib import Path
+from src.time_slice import state_list_to_transitions, state_transitions_to_list
 logger = logging.getLogger(__name__)
 
 def read_map(map_path: Path) -> pd.DataFrame:
@@ -74,7 +75,7 @@ def get_trial_starts(nsfile: NSFile) -> pd.Series:
     )
     return trial_starts
 
-def process_neural_data(nsfile: NSFile) -> tuple[pd.DataFrame, pd.DataFrame]:
+def process_neural_data(nsfile: NSFile, monkey='Sulley') -> tuple[pd.DataFrame, pd.DataFrame]:
     entities = [e for e in nsfile.get_entities(EntityType.segment) if e.item_count > 0] # filter out empty entities
     neural_entities = [e for e in entities if len(e.label) < 8] # filter out non-neural entities
     stim_entities = [e for e in entities if len(e.label) >= 8] # filter out non-stimulation entities
@@ -97,10 +98,17 @@ def process_neural_data(nsfile: NSFile) -> tuple[pd.DataFrame, pd.DataFrame]:
         if num > 128:
             num -= 32
 
+        # TODO: make this flexible depending on the monkey
         if num <= 32 or num > 96:
-            array = 'M1'
+            if monkey.lower() == 'sulley':
+                array = 'M1'
+            elif monkey.lower() == 'prez':
+                array = 'PMd'
         elif num > 32 and num <= 96:
-            array = 'PMd'
+            if monkey.lower() == 'sulley':
+                array = 'PMd'
+            elif monkey.lower() == 'prez':
+                array = 'M1'
         else:
             raise ValueError(f"Unexpected channel number {num} in label '{label}'")
         return f"{array}.chan{num:03d}"
@@ -171,9 +179,67 @@ def trialize_timestamps(timestamps: pd.DataFrame, trial_starts: pd.Series) -> pd
     )
     return trialized_timestamps
 
-def compose_ripple_smile(nsfile: NSFile, smile_data: list, bin_size: str = '1ms') -> pd.DataFrame:
+def correct_stim_states(smile_states: pd.Series, stim_onsets: pd.Series) -> pd.Series:
+    """Correct the state labels in the smile_states Series based on the stim_times Series.
+    For some reason, the timing on the stim state in smile_states is wrong and inconsistent,
+    so we correct it with the stimulation times provided by the NSFile.
+    
+    Parameters
+    ----------
+    smile_states : pd.Series
+        Series with state labels and index ['trial_id', 'time']
+    stim_onsets : pd.Series
+        Series with stimulation times and index 'trial_id'
+    
+    Returns
+    -------
+    pd.Series
+        Series with corrected state labels
+    """
+    state_transition_times = state_list_to_transitions(smile_states, timecol='time')
+
+    trial_info = (
+        state_transition_times
+        .reset_index()
+        .groupby('trial_id')
+        .first()
+        .drop(columns=['new_state', 'time'])
+    )
+
+    stim_transitions = (
+        stim_onsets
+        .to_frame()
+        .assign(new_state='stim')
+        .assign(**trial_info)
+        .reset_index()
+        .set_index(state_transition_times.index.names)
+    )
+
+    new_transitions: pd.Series = (
+        pd.concat([
+            state_transition_times.drop(stim_transitions.index, errors='ignore'),
+            stim_transitions,
+        ])
+        .groupby('trial_id',group_keys=False)
+        .apply(lambda df: df.sort_values(by='time'))
+        .squeeze() # type: ignore
+    )
+
+    return state_transitions_to_list(new_transitions, smile_states.index)
+
+def compose_ripple_smile(
+        nsfile: NSFile,
+        smile_data: list,
+        bin_size: str = '1ms',
+        start_target_name='start',
+        end_target_name='reachendbc',
+        monkey='Sulley',
+        correct_stim_timing=True,
+    ) -> pd.DataFrame:
+    smile_meta = smile_extract.get_smile_meta(smile_data)
+
     stim_trials = (
-        smile_extract.get_smile_meta(smile_data)
+        smile_meta
         ['trial name']
         .apply(lambda x: 'stim' in x.lower())
         .rename('stim trial')
@@ -183,42 +249,89 @@ def compose_ripple_smile(nsfile: NSFile, smile_data: list, bin_size: str = '1ms'
         smile_data,
         bin_size=bin_size,
     )
+    
+    hand_position = smile_extract.concat_trial_func_results(
+        smile_extract.get_trial_hand_data,
+        smile_data,
+        final_sampling_rate = 1/pd.to_timedelta(bin_size).total_seconds(),
+        reference_target = start_target_name,
+    )
 
-    spike_times, stim_times = process_neural_data(nsfile)
+    spike_times, stim_times = process_neural_data(nsfile, monkey=monkey)
     trial_starts = get_trial_starts(nsfile)
 
     stim_channels = (
         stim_times
         .pipe(trialize_timestamps, trial_starts)
         .groupby('trial_id')
-        .first()
         ['channel']
+        .apply(lambda s: frozenset(s.unique()))
         .rename('stimulated channel')
-        .reindex(stim_trials.index, fill_value=-1)
+        .reindex(stim_trials.index, fill_value=frozenset()) # type: ignore
+        .astype('category')
     )
-    
-    trialframe = (
+
+    stim_onsets = (
+        stim_times
+        .pipe(trialize_timestamps, trial_starts)
+        .groupby('trial_id')
+        ['timestamp']
+        .apply(lambda s: s.min().round(bin_size))
+        .rename('time')
+    )
+    if correct_stim_timing:
+        smile_states = correct_stim_states(smile_states, stim_onsets)
+
+    target_list = smile_extract.concat_trial_func_results(smile_extract.get_trial_targets,smile_data)
+    start_targets = target_list.xs(level='target',key=start_target_name)
+    end_targets = target_list.xs(level='target',key=end_target_name)
+    target_directions = (
+        (end_targets[['x','y']] - start_targets[['x','y']])
+        .assign(**{'target direction': lambda df: 180/np.pi*np.atan2(df['y'],df['x'])})
+        .astype({'target direction': 'int'})
+        ['target direction']
+    )
+
+    binned_spikes = (
         spike_times
         .pipe(trialize_timestamps, trial_starts)
         .pipe(smile_extract.bin_spikes, bin_size=bin_size)
         .droplevel(level='unit',axis='columns')
-        .join(smile_states.rename('state'), how='right')
-        .reset_index(level='time')
-        .assign(**{'stim trial': stim_trials, 'stimulated channel': stim_channels})
-        .set_index(['time','stim trial','state','stimulated channel'], append=True)
         .rename_axis('recorded channel',axis=1)
         .sort_index(axis=1)
     )
 
-    return trialframe
+    def assign_meta(df: pd.DataFrame) -> pd.DataFrame:
+        return (
+            df
+            .join(smile_states.rename('state'), how='right')
+            .reset_index(level='time')
+            .assign(**{
+                'result': smile_meta['result'],
+                'stim trial': stim_trials,
+                'stimulated channel': stim_channels,
+                'target direction': target_directions,
+            })
+            .set_index(['time','stim trial','result','target direction','state','stimulated channel'], append=True)
+        )
+
+    return pd.concat(
+        {
+            'neural activity': assign_meta(binned_spikes),
+            'hand position': assign_meta(hand_position)
+        },
+        axis=1,
+        names=['signal','channel'],
+    )
 
 def get_channel_stats(spike_mat: pd.DataFrame, min_firing_rate: float=1.0, max_fano: float=8.0, max_coincidence: float=0.2) -> pd.DataFrame:
+    spike_mat_filled = spike_mat.fillna(0)
     percent_coincidence = (
-        (spike_mat.T @ spike_mat)
-        / spike_mat.sum(axis=0)
+        (spike_mat_filled.T @ spike_mat_filled)
+        / spike_mat_filled.sum(axis=0)
     ) # type: ignore
-    coincidence_triu = pd.DataFrame(
-        np.triu(percent_coincidence, k=1),
+    coincidence = pd.DataFrame(
+        np.triu(percent_coincidence, k=1) + np.tril(percent_coincidence, k=-1),
         index=percent_coincidence.index,
         columns=percent_coincidence.columns
     ) # type: ignore
@@ -234,7 +347,7 @@ def get_channel_stats(spike_mat: pd.DataFrame, min_firing_rate: float=1.0, max_f
         .assign(**{
             'mean firing rate': lambda df: df['mean'] / 0.5, # convert to Hz from 500ms bins
             'fano factor': lambda df: df['var'] / df['mean'],
-            'max coincidence': lambda df: coincidence_triu.max(axis=0).reindex(df.index).fillna(0),
+            'max coincidence': lambda df: coincidence.max(axis=0).reindex(df.index).fillna(0),
             'pass': lambda df: (df['mean firing rate'] > min_firing_rate) & (df['fano factor'] < max_fano) & (df['max coincidence'] < max_coincidence),
         })
     )
