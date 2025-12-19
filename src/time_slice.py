@@ -8,6 +8,18 @@ def get_index_level(df,level=None):
         level = df.index.names
     return df.reset_index(level=level)[level]
 
+def multivalue_xs(df: pd.DataFrame,keys: list,level,axis:int=0,**kwargs) -> pd.DataFrame:
+    if axis == 1:
+        df = df.T
+
+    possible_keys = df.groupby(level=level, observed=True).groups.keys()
+    ret_df = pd.concat([df.xs(key=key,level=level,drop_level=False,**kwargs) for key in keys if key in possible_keys])
+    
+    if axis == 1:
+        ret_df = ret_df.T
+
+    return ret_df
+
 def slice_by_time(data: pd.DataFrame, time_slice: slice, timecol: str='time') -> pd.DataFrame:
     '''
     Slice a DataFrame by a time slice.

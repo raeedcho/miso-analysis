@@ -22,11 +22,19 @@ PORT_FE_BY_BANK = {
 
 
 # array name by bank
+# Sulley uses A/D for M1 and B/C for PMd
+# ARRAY_BY_BANK = {
+#     'A': 'M1',
+#     'B': 'PMd',
+#     'C': 'PMd',
+#     'D': 'M1',
+# }
+# Prez uses A/D for PMd and B/C for M1
 ARRAY_BY_BANK = {
-    'A': 'M1',
-    'B': 'PMd',
-    'C': 'PMd',
-    'D': 'M1',
+    'A': 'PMd',
+    'B': 'M1',
+    'C': 'M1',
+    'D': 'PMd',
 }
 
 
