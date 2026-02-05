@@ -301,6 +301,15 @@ def compose_ripple_smile(
         .sort_index(axis=1)
     )
 
+    binned_stims = (
+        stim_times
+        .pipe(trialize_timestamps, trial_starts)
+        .pipe(smile_extract.bin_spikes, bin_size=bin_size)
+        .droplevel(level='unit',axis='columns')
+        .rename_axis('recorded channel',axis=1)
+        .sort_index(axis=1)
+    )
+
     def assign_meta(df: pd.DataFrame) -> pd.DataFrame:
         return (
             df
@@ -317,8 +326,9 @@ def compose_ripple_smile(
 
     return pd.concat(
         {
+            'hand position': assign_meta(hand_position),
             'neural activity': assign_meta(binned_spikes),
-            'hand position': assign_meta(hand_position)
+            'stim activity': assign_meta(binned_stims).fillna(0),
         },
         axis=1,
         names=['signal','channel'],
