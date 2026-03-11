@@ -47,6 +47,132 @@ def read_map(map_path: Path) -> pd.DataFrame:
     
     return df
 
+def relabel_channels(label: str, monkey: str = 'Sulley') -> str | int:
+    """Relabel electrode labels to array.channel format.
+    
+    Parameters
+    ----------
+    label : str
+        Electrode label (e.g., 'elec001')
+    monkey : str, optional
+        Monkey name ('Sulley' or 'Prez') for array assignment, by default 'Sulley'
+    
+    Returns
+    -------
+    str | int
+        Relabeled channel (e.g., 'M1.chan001') or original label if not an electrode
+    """
+    m = re.match(r'elec\s*(\d+)$', label, re.IGNORECASE)
+    if not m:
+        return label
+    num = int(m.group(1))
+    if num > 5120:
+        num -= 5120
+    if num > 128:
+        num -= 32
+
+    # Map to array based on channel number and monkey
+    if num <= 32 or num > 96:
+        if monkey.lower() == 'sulley':
+            array = 'M1'
+        elif monkey.lower() == 'prez':
+            array = 'PMd'
+    elif num > 32 and num <= 96:
+        if monkey.lower() == 'sulley':
+            array = 'PMd'
+        elif monkey.lower() == 'prez':
+            array = 'M1'
+    else:
+        raise ValueError(f"Unexpected channel number {num} in label '{label}'")
+    return f"{array}.chan{num:03d}"
+
+def get_neural_and_stim_entities(nsfile: NSFile) -> tuple[list, list]:
+    """Get filtered neural and stimulation entities from NSFile.
+    
+    Parameters
+    ----------
+    nsfile : NSFile
+        Neuroshare file object
+    
+    Returns
+    -------
+    tuple[list, list]
+        (neural_entities, stim_entities) where neural entities have short labels
+        and stim entities have long labels. Only entities with items are included.
+    """
+    entities = [e for e in nsfile.get_entities(EntityType.segment) if e.item_count > 0]
+    neural_entities = [e for e in entities if len(e.label) < 8]
+    stim_entities = [e for e in entities if len(e.label) >= 8]
+    
+    if len(neural_entities) == 0:
+        logger.warning("No neural entities with spikes found in the provided NSFile.")
+    if len(stim_entities) == 0:
+        logger.warning("No stimulation entities found in the provided NSFile.")
+    
+    return neural_entities, stim_entities
+
+def process_waveforms(nsfile: NSFile, monkey='Sulley') -> pd.DataFrame:
+    """Extract spike waveforms from NSFile neural entities into a DataFrame.
+    
+    Similar to smile_extract.get_trial_waveforms, but for NSFile data without trial structure.
+    
+    Parameters
+    ----------
+    nsfile : NSFile
+        Neuroshare file object
+    monkey : str, optional
+        Monkey name ('Sulley' or 'Prez') used for channel relabeling
+    
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns as waveform samples (indexed by snippet frame)
+        and multi-level index ['snippet_id', 'channel', 'unit']
+    """
+    neural_entities, _ = get_neural_and_stim_entities(nsfile)
+    
+    if len(neural_entities) == 0:
+        # Return empty DataFrame with correct structure
+        return pd.DataFrame(
+            columns=pd.RangeIndex(0, 0, name='snippet frame'),
+            index=pd.RangeIndex(0, 0, name='snippet_id'),
+        )
+    
+    # Collect all waveforms with their metadata
+    waveforms_list = [
+        {
+            'channel': relabel_channels(entity.label, monkey),
+            'unit': entity.get_segment_data(index)[2],
+            'waveform': entity.get_segment_data(index)[1],
+        }
+        for entity in neural_entities
+        for index in range(entity.item_count)
+    ]
+    
+    if not waveforms_list:
+        logger.warning("No waveforms extracted from NSFile.")
+        return pd.DataFrame(columns=pd.RangeIndex(0, 0, name='snippet frame')).rename_axis('snippet_id', axis=0)
+    
+    # Determine number of samples per waveform (assuming all waveforms have same length)
+    num_samples = len(waveforms_list[0]['waveform'])
+    
+    # Create DataFrame with waveforms as columns
+    waveforms_array = np.array([w['waveform'] for w in waveforms_list])
+    df = (
+        pd.DataFrame(
+            waveforms_array,
+            columns=pd.RangeIndex(start=0, stop=num_samples, name='snippet frame'),
+            index=pd.RangeIndex(start=0, stop=len(waveforms_list), name='snippet_id'),
+        )
+        .assign(**{
+            'channel': [w['channel'] for w in waveforms_list],
+            'unit': [w['unit'] for w in waveforms_list],
+        })
+        .set_index(['channel', 'unit'], append=True)
+    )
+    
+    return df
+
 def get_event_times(event_entity: EventEntity, digline_idx: int, label: str):
     return (
         pd.Series(
@@ -76,46 +202,14 @@ def get_trial_starts(nsfile: NSFile) -> pd.Series:
     return trial_starts
 
 def process_neural_data(nsfile: NSFile, monkey='Sulley') -> tuple[pd.DataFrame, pd.DataFrame]:
-    entities = [e for e in nsfile.get_entities(EntityType.segment) if e.item_count > 0] # filter out empty entities
-    neural_entities = [e for e in entities if len(e.label) < 8] # filter out non-neural entities
-    stim_entities = [e for e in entities if len(e.label) >= 8] # filter out non-stimulation entities
-
-    if len(neural_entities) == 0:
-        logger.warning("No neural entities with spikes found in the provided NSFile.")
-    if len(stim_entities) == 0:
-        logger.warning("No stimulation entities found in the provided NSFile.")
+    neural_entities, stim_entities = get_neural_and_stim_entities(nsfile)
 
     def get_entity_event_times(entity):
         return np.array([entity.get_time_by_index(idx) for idx in range(entity.item_count)])
 
-    def relabel_channels(label: str) -> str | int:
-        m = re.match(r'elec\s*(\d+)$', label, re.IGNORECASE)
-        if not m:
-            return label
-        num = int(m.group(1))
-        if num > 5120:
-            num -= 5120
-        if num > 128:
-            num -= 32
-
-        # TODO: make this flexible depending on the monkey
-        if num <= 32 or num > 96:
-            if monkey.lower() == 'sulley':
-                array = 'M1'
-            elif monkey.lower() == 'prez':
-                array = 'PMd'
-        elif num > 32 and num <= 96:
-            if monkey.lower() == 'sulley':
-                array = 'PMd'
-            elif monkey.lower() == 'prez':
-                array = 'M1'
-        else:
-            raise ValueError(f"Unexpected channel number {num} in label '{label}'")
-        return f"{array}.chan{num:03d}"
-
     def compose_event_table(entity_list: list) -> pd.DataFrame:
         return pd.DataFrame(
-            [(relabel_channels(e.label), 0, pd.to_timedelta(t, unit='s')) for e in entity_list for t in get_entity_event_times(e)],
+            [(relabel_channels(e.label, monkey), 0, pd.to_timedelta(t, unit='s')) for e in entity_list for t in get_entity_event_times(e)],
             columns=['channel', 'unit', 'timestamp'],
         ).rename_axis('snippet_id',axis=0)
 
