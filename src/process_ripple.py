@@ -7,7 +7,7 @@ import re
 import smile_extract
 import logging
 from pathlib import Path
-from src.time_slice import state_list_to_transitions, state_transitions_to_list
+from trialframe import state_list_to_transitions, state_transitions_to_list
 logger = logging.getLogger(__name__)
 
 def read_map(map_path: Path) -> pd.DataFrame:

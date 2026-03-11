@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from src.time_slice import get_index_level, slice_by_time
+from trialframe import get_index_level, slice_by_time
 
 def animate_trial(trial, save_path=None):
     fig,[neural_ax, monitor_ax] = plt.subplots(1,2,figsize=(20,10))
