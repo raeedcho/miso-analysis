@@ -17,8 +17,8 @@ stim_freq=350; % Hz
 stim_duration=150; % ms
 stim_amplitude=25; %uA
 time_between_stim=1.5; %s
-num_stim_repeats=1;
-catch_trials_per_block=1;
+num_stim_repeats=10;
+catch_trials_per_block=2;
 
 % initialize and check xippmex
 addpath(genpath('C:\Program Files (x86)\Ripple\Trellis\Tools\xippmex'))
@@ -33,6 +33,13 @@ unavailable_stim_chans = setdiff(stim_chans,available_stim_chans);
 if any(unavailable_stim_chans)
     error('unable to stimulate on requested channels %d',unavailable_stim_chans)
 end
+
+% % record a baseline period before stim
+% xippmex('trial',205,'recording',[],60,1) % record 60 seconds of baseline
+% fprintf('recording baseline\n')
+% pause(70) % wait for recording to finish
+% % in a new file, record stim responses
+% xippmex('trial',205,'recording',[],[],1)
 
 for i = 1:num_stim_repeats
     stim_chan_order = randperm(length(stim_chans)+catch_trials_per_block);
@@ -60,4 +67,5 @@ for i = 1:num_stim_repeats
         pause(time_between_stim)
     end
 end
+% xippmex('trial',205,'stopped')
 xippmex('close')
