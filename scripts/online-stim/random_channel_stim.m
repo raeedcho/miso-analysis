@@ -2,6 +2,18 @@
 % This script will stimulate across all channels sequentially
 % There will be 10 seconds between each stimulation.
 
+% file parameters
+base_data_folder = 'C:\data';
+monkey = 'Sulley';
+date = datestr(now,'yyyy-mm-dd');
+year = date(1:4);
+data_path = fullfile(base_data_folder, monkey, year, date);
+if ~exist(data_path, 'dir')
+    mkdir(data_path)
+end
+filename_prefix = sprintf('%s_%s', monkey, date);
+stim_paradigm = 'random-single-channel-stim';
+
 % Stimulation parameters
 num_simul_stim_chans = 1;
 all_chans = [1:96 129:160]; % available channels to loop through sequentially
@@ -34,12 +46,12 @@ if any(unavailable_stim_chans)
     error('unable to stimulate on requested channels %d',unavailable_stim_chans)
 end
 
-% % record a baseline period before stim
-% xippmex('trial',205,'recording',[],60,1) % record 60 seconds of baseline
-% fprintf('recording baseline\n')
-% pause(70) % wait for recording to finish
-% % in a new file, record stim responses
-% xippmex('trial',205,'recording',[],[],1)
+% record a baseline period before stim
+xippmex('trial','recording',fullfile(data_path, sprintf('%s_baseline_neural', filename_prefix)),60,1) % record 60 seconds of baseline
+fprintf('recording baseline\n')
+pause(70) % wait for recording to finish
+% in a new file, record stim responses
+xippmex('trial','recording',fullfile(data_path, sprintf('%s_%s_neural', filename_prefix, stim_paradigm)),0,1)
 
 for i = 1:num_stim_repeats
     stim_chan_order = randperm(length(stim_chans)+catch_trials_per_block);
