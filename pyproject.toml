@@ -25,6 +25,9 @@ dependencies = [
     "altair",
     "dvc",
     "jupyter",
+    # remote dependencies
+    "smile_extract @ git+https://github.com/raeedcho/smile-extraction.git",
+    "trialframe @ git+https://github.com/raeedcho/trialframe.git",
 ]
 
 [project.optional-dependencies]
