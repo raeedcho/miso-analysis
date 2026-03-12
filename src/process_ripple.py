@@ -47,7 +47,7 @@ def read_map(map_path: Path) -> pd.DataFrame:
     
     return df
 
-def relabel_channels(label: str, monkey: str = 'Sulley') -> str | int:
+def label_channels(label: str, monkey: str = 'Sulley', use_semantic_channel_labels: bool = True) -> str | int:
     """Relabel electrode labels to array.channel format.
     
     Parameters
@@ -56,16 +56,25 @@ def relabel_channels(label: str, monkey: str = 'Sulley') -> str | int:
         Electrode label (e.g., 'elec001')
     monkey : str, optional
         Monkey name ('Sulley' or 'Prez') for array assignment, by default 'Sulley'
+    use_semantic_channel_labels : bool, optional
+        If True, relabel channels to array.channel format; if False, return channel number, by default True
     
     Returns
     -------
     str | int
         Relabeled channel (e.g., 'M1.chan001') or original label if not an electrode
     """
+
     m = re.match(r'elec\s*(\d+)$', label, re.IGNORECASE)
     if not m:
         return label
     num = int(m.group(1))
+    if not use_semantic_channel_labels:
+        return num
+    
+    # Apply the offset corrections based on channel number
+    # (because of the way the arrays are wired to the recording system--
+    # port A has 3 of 4 32-channel banks, port B has the rest, and the channel numbers are sequential within each port)
     if num > 5120:
         num -= 5120
     if num > 128:
@@ -141,7 +150,7 @@ def process_waveforms(nsfile: NSFile, monkey='Sulley') -> pd.DataFrame:
     # Collect all waveforms with their metadata
     waveforms_list = [
         {
-            'channel': relabel_channels(entity.label, monkey),
+            'channel': label_channels(entity.label, monkey),
             'unit': entity.get_segment_data(index)[2],
             'waveform': entity.get_segment_data(index)[1],
         }
@@ -201,7 +210,7 @@ def get_trial_starts(nsfile: NSFile) -> pd.Series:
     )
     return trial_starts
 
-def process_neural_data(nsfile: NSFile, monkey='Sulley') -> tuple[pd.DataFrame, pd.DataFrame]:
+def process_neural_data(nsfile: NSFile, monkey='Sulley', use_semantic_channel_labels=True) -> tuple[pd.DataFrame, pd.DataFrame]:
     neural_entities, stim_entities = get_neural_and_stim_entities(nsfile)
 
     def get_entity_event_times(entity):
@@ -209,7 +218,10 @@ def process_neural_data(nsfile: NSFile, monkey='Sulley') -> tuple[pd.DataFrame, 
 
     def compose_event_table(entity_list: list) -> pd.DataFrame:
         return pd.DataFrame(
-            [(relabel_channels(e.label, monkey), 0, pd.to_timedelta(t, unit='s')) for e in entity_list for t in get_entity_event_times(e)],
+            [
+                (label_channels(e.label, monkey, use_semantic_channel_labels), 0, pd.to_timedelta(t, unit='s'))
+                for e in entity_list for t in get_entity_event_times(e)
+            ],
             columns=['channel', 'unit', 'timestamp'],
         ).rename_axis('snippet_id',axis=0)
 
