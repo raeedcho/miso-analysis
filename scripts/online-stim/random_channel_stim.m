@@ -28,9 +28,11 @@ pulse_width=250; % us
 stim_freq=350; % Hz
 stim_duration=150; % ms
 stim_amplitude=25; %uA
-time_between_stim=1.5; %s
+prestim_time=0.3; %s
+poststim_time=0.8; %s
 num_stim_repeats=10;
 catch_trials_per_block=2;
+baseline_recording_time = 15; % seconds to record baseline neural activity before stim
 
 % initialize and check xippmex
 addpath(genpath('C:\Program Files (x86)\Ripple\Trellis\Tools\xippmex'))
@@ -47,19 +49,21 @@ if any(unavailable_stim_chans)
 end
 
 % record a baseline period before stim
-xippmex('trial','recording',fullfile(data_path, sprintf('%s_baseline_neural', filename_prefix)),60,1) % record 60 seconds of baseline
+xippmex('trial','recording',fullfile(data_path, sprintf('%s_baseline_neural_', filename_prefix)),baseline_recording_time,1,1) % record baseline
 fprintf('recording baseline\n')
-pause(70) % wait for recording to finish
-% in a new file, record stim responses
-xippmex('trial','recording',fullfile(data_path, sprintf('%s_%s_neural', filename_prefix, stim_paradigm)),0,1)
+pause(baseline_recording_time + 5) % wait for recording to finish
+% in a new file, record stim responses (each trial gets its own file)
+xippmex('trial','recording',fullfile(data_path, sprintf('%s_%s_neural_', filename_prefix, stim_paradigm)),0,1)
 
 for i = 1:num_stim_repeats
     stim_chan_order = randperm(length(stim_chans)+catch_trials_per_block);
     for channum = 1:length(stim_chans)+catch_trials_per_block
+        % trial start
+        pause(prestim_time)
         if stim_chan_order(channum) > length(stim_chans)
             xippmex('digout', 1:2, [1, 1]); pause(0.001); xippmex('digout', 1:2, [0,0]);
             fprintf('catch trial - no stim\n')
-            pause(time_between_stim)
+            pause(poststim_time)
             continue
         end
         chosen_chan = stim_chans(stim_chan_order(channum),:);
@@ -76,8 +80,8 @@ for i = 1:num_stim_repeats
         % send a digital pulse to mark stim timing, then trigger stim
         xippmex('digout', 1:2, [1, 1]); pause(0.001); xippmex('digout', 1:2, [0,0]);
         xippmex('stimseq',stim_cmd)
-        pause(time_between_stim)
+        pause(poststim_time)
     end
 end
-% xippmex('trial',205,'stopped')
+xippmex('trial','stopped')
 xippmex('close')

@@ -28,6 +28,7 @@ dependencies = [
     # remote dependencies
     "smile_extract @ git+https://github.com/raeedcho/smile-extraction.git",
     "trialframe @ git+https://github.com/raeedcho/trialframe.git",
+    "pyns @ git+https://github.com/raeedcho/pyns.git"
 ]
 
 [project.optional-dependencies]
