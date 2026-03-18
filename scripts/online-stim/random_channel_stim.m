@@ -32,7 +32,7 @@ prestim_time=0.3; %s
 poststim_time=0.8; %s
 num_stim_repeats=10;
 catch_trials_per_block=2;
-baseline_recording_time = 15; % seconds to record baseline neural activity before stim
+baseline_recording_time = 30; % seconds to record baseline neural activity before stim
 
 % initialize and check xippmex
 addpath(genpath('C:\Program Files (x86)\Ripple\Trellis\Tools\xippmex'))
