@@ -1,4 +1,4 @@
-function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp)
+function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp,offset)
 %function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp)
 %
 % This function formats the stim command that gets sent to Ripple via
@@ -10,7 +10,12 @@ function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,st
 % variable amplitudes can be specificed, but other parameters (pulse width,
 % frequency, etc.) are yoked across channels. -ACS 11Jun2015
 
+if nargin < 6
+    offset = 0;
+end
+
 % CHECKING FOR REASONABLE LIMITS ON USTIM
+
 if pulse_width ~= 250
     error('Why mess with this? Just use 250 for pulse_width');
 end
@@ -68,6 +73,8 @@ stim_clockticks = (stim_dur * 1000) / clock_cycle;
 stim_repeats = floor((stim_dur / 1000) * stim_freq);
 stim_period = floor(stim_clockticks / stim_repeats);
 full_pulses = floor(pulse_width / clock_cycle);
+offset_delay = floor(offset / delay_length);
+full_pulse_with_offset = floor((pulse_width + offset)/ clock_cycle);
 
 % figure out step size for the micro+stim
 nstim_steps = floor(stim_amp/step_size);
@@ -102,8 +109,13 @@ for thisChan = 1:numel(stim_cmd),
     % setup the cathodic phase - 1 clock cycle for the first 33.3 uS, then fill
     % in the rest of the pulse to get exactly the length you want (with near-uS
     % precision)
-    stim_cmd(thisChan).seq(1) = struct('length', full_pulses, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
-    cath_remaining = pulse_width - (full_pulses * clock_cycle);
+    if thisChan == 1
+        stim_cmd(thisChan).seq(1) = struct('length', full_pulses, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+        cath_remaining = pulse_width - (full_pulses * clock_cycle);
+    else
+        stim_cmd(thisChan).seq(1) = struct('length', full_pulse_with_offset, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', offset_delay, 'ampSelect', 1);
+        cath_remaining = pulse_width - (full_pulse_with_offset * clock_cycle) + (delay_length*offset_delay);
+    end
     cath_delay = floor(cath_remaining / delay_length);
     stim_cmd(thisChan).seq(2) = struct('length', 1, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 0, 'delay', cath_delay, 'ampSelect', 1);
     
