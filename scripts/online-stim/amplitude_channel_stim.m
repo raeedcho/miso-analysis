@@ -85,10 +85,10 @@ for i = 1:num_stim_repeats
             continue
         end
         chosen_chan = stim_chans(stim_chan_order(channum),:);
-        chosen_amp = stim_aplitude(stim_chan_order(channum),:);
+        chosen_amp = stim_amplitude(stim_chan_order(channum),:);
         
         xippmex('stim','enable',0) % disable stim first so step size can be set
-        stim_cmd = xippmexStimCmd(chosen_chan,pulse_width,stim_freq,stim_duration,chosen_amplitude,stim_offset);
+        stim_cmd = xippmexStimCmd(chosen_chan,pulse_width,stim_freq,stim_duration,chosen_amp,stim_offset);
         xippmex('stim','enable',1) % re-enable stim
         xippmex('signal',chosen_chan,'stim',chosen_chan)
         
