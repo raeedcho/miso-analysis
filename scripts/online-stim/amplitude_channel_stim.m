@@ -72,20 +72,23 @@ fprintf('recording baseline\n')
 pause(baseline_recording_time + 5) % wait for recording to finish
 % in a new file, record stim responses (each trial gets its own file)
 xippmex('trial','recording',fullfile(data_path, sprintf('%s_%s_neural_', filename_prefix, stim_paradigm)),0,1)
-
+stim_record = struct('channel',{},'amplitude',{});
 for i = 1:num_stim_repeats
     stim_chan_order = randperm(length(stim_chans)+catch_trials_per_block);
     for channum = 1:length(stim_chans)+catch_trials_per_block
         % trial start
+        fprintf('Running stimulation trial %d/%d.\n',channum + (length(stim_chans)+catch_trials_per_block)*(i-1),total_trials)
         pause(prestim_time)
         if stim_chan_order(channum) > length(stim_chans)
             xippmex('digout', 1:2, [1, 1]); pause(0.001); xippmex('digout', 1:2, [0,0]);
             fprintf('catch trial - no stim\n')
+            stim_record(end+1) = struct('channel',[],'amplitude',[]);
             pause(poststim_time)
             continue
         end
         chosen_chan = stim_chans(stim_chan_order(channum),:);
         chosen_amp = stim_amplitude(stim_chan_order(channum),:);
+        stim_record(end+1) = struct('channel',chosen_chan,'amplitude',chosen_amp);
         
         xippmex('stim','enable',0) % disable stim first so step size can be set
         stim_cmd = xippmexStimCmd(chosen_chan,pulse_width,stim_freq,stim_duration,chosen_amp,stim_offset);
@@ -102,5 +105,6 @@ for i = 1:num_stim_repeats
         pause(poststim_time)
     end
 end
+save(fullfile(data_path,sprintf('%s_%s_trial_order.mat',filename_prefix,stim_paradigm)),'stim_record')
 xippmex('trial','stopped')
 xippmex('close')
