@@ -1,6 +1,5 @@
-%% Script to run random channel + variable phase offset stim across arrays
-% This script will stimulate selected pairs of channels at varying stim
-% offsets. 
+%% Script to run pseudo-bipolar stimulation across arrays
+% This script will stimulate selected pairs of adjacent channels with a pseudobipolar structure
 % To limit session time, of all possible pairs to stimulate, we select 66
 % pairs at random (NO), or select 12 electrodes (YES) and stimulate all possible
 % pairs of this subset. 
@@ -14,10 +13,11 @@
 % E1 __________________|___|___|___|_____________________ 
 % E2 ____________________|___|___|___|___________________ (desync)
 % ***Time intervals not to scale
+
+% file parameters
 addpath('/opt/Trellis/Tools/xippmex')
 % file parameters
 base_data_folder = '/home/collinlehmann';
-% base_data_folder = '/media/collinlehmann/C22622ED2622E1E1/Users/Collin/OneDrive - University of Pittsburgh/Data';
 monkey = 'Sulley';
 date = datestr(now,'yyyy-mm-dd');
 year = date(1:4);
@@ -26,48 +26,71 @@ if ~exist(data_path, 'dir')
     mkdir(data_path)
 end
 filename_prefix = sprintf('%s_%s', monkey, date);
-stim_paradigm = 'paired-channel-offset-stim';
-reduce_stim_count_method = 'by_elec'; % 'by_elec' or 'by_pair'
+stim_paradigm = 'bipolar-stim';
 
 % Stimulation parameters
 num_simul_stim_chans = 2;
 all_chans = [1:96 129:160]; % available channels to loop through sequentially
-active_chans = [1 5 6 7 10 19 31 53 73 77 160]';
+% FOR BIPOLAR, active chans should be an N x 2 matrix with a desired stim pair in each row.
+% See map for adjacency:
+active_chans = [12 10
+                12 9
+                12 29
+                6 9
+                12 6
+                6 5
+                6 10
+                5 19
+                5 7
+                7 13
+                7 19
+                7 4
+                1 15
+                1 2
+                1 3
+                31 18
+                31 23
+                73 74
+                73 71
+                31 18
+                31 27
+                31 93
+                77 79
+                77 75
+                75 73
+                77 78
+                79 80
+                78 80
+                88 80
+                53 50
+                53 51
+                53 57
+                53 40
+                160 146
+                160 144
+                160 147];
 inactive_chans = setdiff(all_chans,active_chans);
-
-if length(active_chans) <= 12
-    stim_chans = nchoosek(active_chans,num_simul_stim_chans);
-elseif strcmp(reduce_stim_count_method, 'by_elec')
-    stim_chans = nchoosek(active_chans(randperm(length(active_chans),12)),num_simul_stim_chans);
-else strcmp(reduce_stim_count_method, 'by_pair')
-    stim_chans = nchoosek(active_chans,num_simul_stim_chans);
-    stim_chans = stim_chans(randperm(size(stim_chans, 1), 66),:);
-end
-
 
 fast_settle_option = 3; % 1=None, 2=Any, 3=Same port, 4= Same front end
 fast_settle_duration = 0.5; %ms
 
 pulse_width=250; % us
 stim_freq=350; % Hz
-stim_duration=150; % ms
-stim_amplitude=25; %uA
-%[25 50 75]
-stim_offset = [0 .5].'*1e6/stim_freq; % us
+stim_duration=50; % ms
+stim_amplitude=40; %uA
+stim_offset = 0;
 prestim_time=0.3; %s
 poststim_time=0.8; %s
 num_stim_repeats=10;
 catch_trials_per_block=2;
+bipolar=true;
 baseline_recording_time = 30; % seconds to record baseline neural activity before stim
 
+stim_chans = [active_chans ; fliplr(active_chans)];
 n_stim_pairs = length(stim_chans);
-n_offsets = length(stim_offset);
 
-total_trials = num_stim_repeats*(catch_trials_per_block + n_stim_pairs*n_offsets); % total number of planned stim trials
+total_trials = num_stim_repeats*(catch_trials_per_block + n_stim_pairs); % total number of planned stim trials
 total_time = baseline_recording_time + total_trials*(prestim_time + poststim_time + (stim_duration/1000)); %total planned session time in s
-
-stim_chans = repelem(stim_chans, n_offsets,1);
-stim_offset = repmat(stim_offset, n_stim_pairs, 1);
 
 input(sprintf('Planned session includes %d trials, projected to last a total of %.1f minutes. Ok to proceed?',total_trials,total_time/60),'s');
 
@@ -80,7 +103,7 @@ if status ~= 1
 end
 available_stim_chans = xippmex('elec','stim');
 
-unavailable_stim_chans = setdiff(stim_chans,available_stim_chans);
+unavailable_stim_chans = setdiff(stim_chans(:),available_stim_chans);
 if any(unavailable_stim_chans)
     error('unable to stimulate on requested channels %d',unavailable_stim_chans)
 end
@@ -92,7 +115,7 @@ pause(baseline_recording_time + 5) % wait for recording to finish
 % in a new file, record stim responses (each trial gets its own file)
 xippmex('trial','recording',fullfile(data_path, sprintf('%s_%s_neural_', filename_prefix, stim_paradigm)),0,1)
 stim_record = fopen(fullfile(data_path,sprintf('%s_%s_trial_order.txt',filename_prefix,stim_paradigm)), 'w');
-fprintf(stim_record,'%s\t%s\t%s\n','trial_id','channel','offset');
+fprintf(stim_record,'%s\t%s\t%s\n','trial_id','channel','cath_first');
 for i = 1:num_stim_repeats
     stim_chan_order = randperm(length(stim_chans)+catch_trials_per_block);
     for channum = 1:length(stim_chans)+catch_trials_per_block
@@ -107,11 +130,10 @@ for i = 1:num_stim_repeats
             continue
         end
         chosen_chan = stim_chans(stim_chan_order(channum),:);
-        chosen_offset = stim_offset(stim_chan_order(channum),:);
-        fprintf(stim_record,'%d\t%s\t%d\n',channum + (i-1)*(length(stim_chans)+catch_trials_per_block),num2str(chosen_chan),chosen_offset);
+        fprintf(stim_record,'%d\t%s\t%d\n',channum + (i-1)*(length(stim_chans)+catch_trials_per_block),num2str(chosen_chan),num2str(chosen_chan(1)));
         
         xippmex('stim','enable',0) % disable stim first so step size can be set
-        stim_cmd = xippmexStimCmd(chosen_chan,pulse_width,stim_freq,stim_duration,stim_amplitude,chosen_offset);
+        stim_cmd = xippmexStimCmd(chosen_chan,pulse_width,stim_freq,stim_duration,stim_amplitude,stim_offset,bipolar);
         xippmex('stim','enable',1) % re-enable stim
         xippmex('signal',chosen_chan,'stim',chosen_chan)
         

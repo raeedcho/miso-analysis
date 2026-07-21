@@ -9,7 +9,9 @@
 
 
 % file parameters
-base_data_folder = 'C:\data';
+addpath('/opt/Trellis/Tools/xippmex')
+% file parameters
+base_data_folder = '/home/collinlehmann';
 monkey = 'Sulley';
 date = datestr(now,'yyyy-mm-dd');
 year = date(1:4);
@@ -23,7 +25,7 @@ stim_paradigm = 'random-channel-amplitude-stim';
 % Stimulation parameters
 num_simul_stim_chans = 1;
 all_chans = [1:96 129:160]; % available channels to loop through sequentially
-active_chans = [2,3,4,5,9,11,12,33,40,52,53,57,61,73,75,77,79,80,88,146,158,160]';
+active_chans = [1,6,7,9,12,53,57,61,75,77,80,160]';
 inactive_chans = setdiff(all_chans,active_chans);
 stim_chans = nchoosek(active_chans,num_simul_stim_chans);
 
@@ -67,13 +69,13 @@ if any(unavailable_stim_chans)
 end
 
 % record a baseline period before stim
-xippmex('trial','recording',fullfile(data_path, sprintf('%s_baseline_neural_', filename_prefix)),baseline_recording_time,1,1) % record baseline
+xippmex('trial','recording',fullfile(data_path, sprintf('%s_baseline_neural_2', filename_prefix)),baseline_recording_time,1,1) % record baseline
 fprintf('recording baseline\n')
 pause(baseline_recording_time + 5) % wait for recording to finish
 % in a new file, record stim responses (each trial gets its own file)
 xippmex('trial','recording',fullfile(data_path, sprintf('%s_%s_neural_', filename_prefix, stim_paradigm)),0,1)
 stim_record = fopen(fullfile(data_path,sprintf('%s_%s_trial_order.txt',filename_prefix,stim_paradigm)), 'w');
-fprintf(stim_record,'%s\t%s\t%s\n','trial_num','channel','amplitude');
+fprintf(stim_record,'%s\t%s\t%s\n','trial_id','channel','amplitude');
 for i = 1:num_stim_repeats
     stim_chan_order = randperm(length(stim_chans)+catch_trials_per_block);
     for channum = 1:length(stim_chans)+catch_trials_per_block
