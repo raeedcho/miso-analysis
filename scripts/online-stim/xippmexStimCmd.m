@@ -1,4 +1,4 @@
-function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp,offset,bipolar)
+function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp,offset,bipolar,offset_pulse)
 %function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp)
 %
 % This function formats the stim command that gets sent to Ripple via
@@ -9,6 +9,7 @@ function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,st
 % 11Jun2015 by ACS: added some support for multiple channels. Right now,
 % variable amplitudes can be specificed, but other parameters (pulse width,
 % frequency, etc.) are yoked across channels. -ACS 11Jun2015
+
 if nargin < 7
     bipolar = false;
     if nargin < 6
@@ -86,6 +87,7 @@ else
     offset_delay = floor(offset / delay_length);
 end
 
+
 full_pulse_with_offset = floor((pulse_width + offset_delay*delay_length)/ clock_cycle);
 
 % figure out step size for the micro+stim
@@ -106,7 +108,7 @@ end
 disp(['XIPPMEX: Requested ',num2str(stim_amp),' uA and actually delivered ',num2str(actual_stim_amp),' uA on channels ', num2str(stim_chan)]); %might want to add channel numbers to this warning -ACS 11Jun2015
 
 % setup the overall stim command structure
-stim_cmd = struct('elec', num2cell(stim_chan), 'period', num2cell(stim_period), 'repeats', num2cell(stim_repeats)); %put arguments in num2cell calls for multiple channel support -ACS 11Jun2015
+stim_cmd = struct('elec', num2cell(stim_chan), 'period', num2cell(stim_period), 'repeats', num2cell(stim_repeats), 'action', {'curcyc'}); %put arguments in num2cell calls for multiple channel support -ACS 11Jun2015
 if isscalar(nstim_steps)&&~isscalar(stim_cmd),
     nstim_steps = nstim_steps.*ones(size(stim_cmd)); %set all amplitudes equal if multiple channels are requested but only one amplitude is supplied. -ACS 11Jun2015
 end;
@@ -145,6 +147,11 @@ else
         if thisChan == 1
             stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulses, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
             cath_remaining = pulse_width - (full_pulses * clock_cycle);
+        elseif offset_pulse ~= 0
+            stim_cmd(thisChan).seq(next_seq) = struct('length', offset_cycles, 'ampl', 0, 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+            next_seq = next_seq+1;
+            stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulse_with_offset, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', offset_delay, 'ampSelect', 1);
+            cath_remaining = pulse_width - (full_pulse_with_offset * clock_cycle) + (delay_length*offset_delay);
         elseif offset_cycles == 0
             stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulse_with_offset, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', offset_delay, 'ampSelect', 1);
             cath_remaining = pulse_width - (full_pulse_with_offset * clock_cycle) + (delay_length*offset_delay);
