@@ -19,7 +19,7 @@ end
 
 % CHECKING FOR REASONABLE LIMITS ON USTIM
 
-if pulse_width ~= 250
+if pulse_width > 250
     error('Why mess with this? Just use 250 for pulse_width');
 end
 if stim_freq > 350
