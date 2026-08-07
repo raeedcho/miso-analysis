@@ -9,7 +9,8 @@
 
 
 % file parameters
-addpath('/Users/collinlehmann/Documents/miso-analysis/scripts/online-stim')
+addpath('/opt/Trellis/Tools/xippmex')
+% addpath('/Users/collinlehmann/Documents/miso-analysis/scripts/online-stim')
 % file parameters
 base_data_folder = '/home/collinlehmann';
 monkey = 'Sulley';
@@ -25,7 +26,7 @@ stim_paradigm = 'random-channel-pulse-width-stim';
 % Stimulation parameters
 num_simul_stim_chans = 1;
 all_chans = [1:96 129:160]; % available channels to loop through sequentially
-active_chans = [1,6,7,9,12,53,57,61,75,77,80,160]';
+active_chans = [1,3,4,5,6,7,8,9,11,12,15,31,40,53,57,73,77,79,80,88,129,137,147,160]';
 inactive_chans = setdiff(all_chans,active_chans);
 stim_chans = nchoosek(active_chans,num_simul_stim_chans);
 

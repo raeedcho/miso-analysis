@@ -9,15 +9,15 @@
 %    [- -  300 ms  - -][ - -150 ms- -][- -  800 ms   - -]
 % E1 __________________|___|___|___|_____________________
 % E2 _________________________________|___|___|___|______ 150ms
-                            OR
+%                           OR
 % E1 __________________|___|___|___|_____________________
 % E2 __________________|___|___|___|_____________________ 0ms
 %                           OR
 % E1 __________________|___|___|___|_____________________ 
 % E2 ________________________________________________|___|___|___|___ 300 ms
 % ***Time intervals not to scale
-% addpath('/opt/Trellis/Tools/xippmex')
-addpath('/Users/collinlehmann/Documents/miso-analysis/scripts/online-stim')
+addpath('/opt/Trellis/Tools/xippmex')
+% addpath('/Users/collinlehmann/Documents/miso-analysis/scripts/online-stim')
 % file parameters
 base_data_folder = '/home/collinlehmann';
 monkey = 'Sulley';
@@ -54,7 +54,7 @@ pulse_width=250; % us
 stim_freq=350; % Hz
 stim_duration=150; % ms
 stim_amplitude=25; %uA
-stim_offset = [0 150 300]'; % us max 1e6/stim_freq = 2857
+stim_offset = [0 150000 300000]'; % us 
 prestim_time=0.3; %s
 poststim_time=0.8; %s
 num_stim_repeats=10;
