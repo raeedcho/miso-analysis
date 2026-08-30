@@ -1,4 +1,4 @@
-function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp)
+function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp,offset,bipolar,offset_pulse)
 %function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,stim_amp)
 %
 % This function formats the stim command that gets sent to Ripple via
@@ -10,11 +10,19 @@ function [stim_cmd] = xippmexStimCmd(stim_chan,pulse_width,stim_freq,stim_dur,st
 % variable amplitudes can be specificed, but other parameters (pulse width,
 % frequency, etc.) are yoked across channels. -ACS 11Jun2015
 
+if nargin < 7
+    bipolar = false;
+    if nargin < 6
+        offset = 0;
+    end
+end
+
 % CHECKING FOR REASONABLE LIMITS ON USTIM
-if pulse_width ~= 250
+
+if pulse_width > 250
     error('Why mess with this? Just use 250 for pulse_width');
 end
-if stim_freq ~= 350
+if stim_freq > 350
     error('Why mess with this? Just use 350 for stim_freq');
 end
 if stim_dur <= 0 || stim_dur > 500
@@ -33,6 +41,9 @@ if numel(stim_amp) > 1
     end
 end
 
+if numel(stim_chan) ~= 2 && bipolar
+    error('Must specify exactly two electrodes for bipolar stim')
+end
 %enable fast settle
 fs=1;
 
@@ -68,6 +79,16 @@ stim_clockticks = (stim_dur * 1000) / clock_cycle;
 stim_repeats = floor((stim_dur / 1000) * stim_freq);
 stim_period = floor(stim_clockticks / stim_repeats);
 full_pulses = floor(pulse_width / clock_cycle);
+if offset >= clock_cycle
+    offset_cycles = floor(offset / clock_cycle);
+    offset_delay = floor((offset - offset_cycles*clock_cycle) / delay_length);
+else
+    offset_cycles = 0;
+    offset_delay = floor(offset / delay_length);
+end
+
+
+full_pulse_with_offset = floor((pulse_width + offset_delay*delay_length)/ clock_cycle);
 
 % figure out step size for the micro+stim
 nstim_steps = floor(stim_amp/step_size);
@@ -87,39 +108,79 @@ end
 disp(['XIPPMEX: Requested ',num2str(stim_amp),' uA and actually delivered ',num2str(actual_stim_amp),' uA on channels ', num2str(stim_chan)]); %might want to add channel numbers to this warning -ACS 11Jun2015
 
 % setup the overall stim command structure
-stim_cmd = struct('elec', num2cell(stim_chan), 'period', num2cell(stim_period), 'repeats', num2cell(stim_repeats)); %put arguments in num2cell calls for multiple channel support -ACS 11Jun2015
+stim_cmd = struct('elec', num2cell(stim_chan), 'period', num2cell(stim_period), 'repeats', num2cell(stim_repeats), 'action', {'curcyc'}); %put arguments in num2cell calls for multiple channel support -ACS 11Jun2015
 if isscalar(nstim_steps)&&~isscalar(stim_cmd),
     nstim_steps = nstim_steps.*ones(size(stim_cmd)); %set all amplitudes equal if multiple channels are requested but only one amplitude is supplied. -ACS 11Jun2015
 end;
-for thisChan = 1:numel(stim_cmd),
-    %%% LOOKS LIKE THIS WAS POSITIVE FIRST, WE WANT NEGATIVE FIRST SO I CHANGED
-    %%% THE POLARITY ORDER SO POL OF 1 WAS FIRST AND 0 SECOND (DIFFERENT FROM
-    %%% THE DEFAULT IN THE RIPPLE CODE)
-    %%% 11Jun2015- update on comment above: this seems to have been due to
-    %%% the "invert" setting being on on the oscilloscope. I switched the
-    %%% polarity order back -ACS 11Jun2015
+
+if bipolar
+    stim_cmd(1).seq(1) = struct('length', full_pulses, 'ampl', nstim_steps(1), 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+    stim_cmd(2).seq(1) = struct('length', full_pulses, 'ampl', nstim_steps(2), 'pol', 1,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
     
-    % setup the cathodic phase - 1 clock cycle for the first 33.3 uS, then fill
-    % in the rest of the pulse to get exactly the length you want (with near-uS
-    % precision)
-    stim_cmd(thisChan).seq(1) = struct('length', full_pulses, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
     cath_remaining = pulse_width - (full_pulses * clock_cycle);
     cath_delay = floor(cath_remaining / delay_length);
-    stim_cmd(thisChan).seq(2) = struct('length', 1, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 0, 'delay', cath_delay, 'ampSelect', 1);
     
-    % could setup an interphase interval here, but we don't usually use one
-    % MATT - optional here, this code as is will wait for the end of the clock
-    % cycle to start the anodic phase. So it will really be 248.1 uS instead of
-    % 250 uS (for example).
+    stim_cmd(1).seq(2) = struct('length', 1, 'ampl', nstim_steps(1), 'pol', 0,'fs', fs, 'enable', 0, 'delay', cath_delay, 'ampSelect', 1);
+    stim_cmd(2).seq(2) = struct('length', 1, 'ampl', nstim_steps(2), 'pol', 1,'fs', fs, 'enable', 0, 'delay', cath_delay, 'ampSelect', 1);
     
-    % setup the anodic phase
-    stim_cmd(thisChan).seq(3) = struct('length', full_pulses, 'ampl', nstim_steps(thisChan), 'pol', 1,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+    stim_cmd(1).seq(3) = struct('length', full_pulses, 'ampl', nstim_steps(1), 'pol', 1,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+    stim_cmd(2).seq(3) = struct('length', full_pulses, 'ampl', nstim_steps(2), 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+    
     an_remaining = pulse_width - (full_pulses * clock_cycle);
     an_delay = floor(an_remaining / delay_length);
-    stim_cmd(thisChan).seq(4) = struct('length', 1, 'ampl', nstim_steps(thisChan), 'pol', 1,'fs', fs, 'enable', 0, 'delay', an_delay, 'ampSelect', 1);
     
-end;
-
+    stim_cmd(1).seq(4) = struct('length', 1, 'ampl', nstim_steps(1), 'pol', 1,'fs', fs, 'enable', 0, 'delay', an_delay, 'ampSelect', 1);
+    stim_cmd(2).seq(4) = struct('length', 1, 'ampl', nstim_steps(2), 'pol', 0,'fs', fs, 'enable', 0, 'delay', an_delay, 'ampSelect', 1);
+else
+    for thisChan = 1:numel(stim_cmd),
+        %%% LOOKS LIKE THIS WAS POSITIVE FIRST, WE WANT NEGATIVE FIRST SO I CHANGED
+        %%% THE POLARITY ORDER SO POL OF 1 WAS FIRST AND 0 SECOND (DIFFERENT FROM
+        %%% THE DEFAULT IN THE RIPPLE CODE)
+        %%% 11Jun2015- update on comment above: this seems to have been due to
+        %%% the "invert" setting being on on the oscilloscope. I switched the
+        %%% polarity order back -ACS 11Jun2015
+        
+        % setup the cathodic phase - 1 clock cycle for the first 33.3 uS, then fill
+        % in the rest of the pulse to get exactly the length you want (with near-uS
+        % precision)
+        next_seq = 1;
+        if thisChan == 1
+            stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulses, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+            cath_remaining = pulse_width - (full_pulses * clock_cycle);
+        elseif offset_pulse ~= 0
+            stim_cmd(thisChan).seq(next_seq) = struct('length', offset_cycles, 'ampl', 0, 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+            next_seq = next_seq+1;
+            stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulse_with_offset, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', offset_delay, 'ampSelect', 1);
+            cath_remaining = pulse_width - (full_pulse_with_offset * clock_cycle) + (delay_length*offset_delay);
+        elseif offset_cycles == 0
+            stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulse_with_offset, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', offset_delay, 'ampSelect', 1);
+            cath_remaining = pulse_width - (full_pulse_with_offset * clock_cycle) + (delay_length*offset_delay);
+        elseif bipolar
+            stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulses, 'ampl', nstim_steps(thisChan), 'pol', 1,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+            cath_remaining = pulse_width - (full_pulses * clock_cycle);
+        else
+            stim_cmd(thisChan).seq(next_seq) = struct('length', offset_cycles, 'ampl', 0, 'pol', 0,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+            next_seq = next_seq+1;
+            stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulse_with_offset, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 1, 'delay', offset_delay, 'ampSelect', 1);
+            cath_remaining = pulse_width - (full_pulse_with_offset * clock_cycle) + (delay_length*offset_delay);
+        end
+        next_seq = next_seq+1;
+        cath_delay = floor(cath_remaining / delay_length);
+        stim_cmd(thisChan).seq(next_seq) = struct('length', 1, 'ampl', nstim_steps(thisChan), 'pol', 0,'fs', fs, 'enable', 0, 'delay', cath_delay, 'ampSelect', 1);
+        next_seq = next_seq+1;
+        % could setup an interphase interval here, but we don't usually use one
+        % MATT - optional here, this code as is will wait for the end of the clock
+        % cycle to start the anodic phase. So it will really be 248.1 uS instead of
+        % 250 uS (for example).
+        
+        % setup the anodic phase
+        stim_cmd(thisChan).seq(next_seq) = struct('length', full_pulses, 'ampl', nstim_steps(thisChan), 'pol', 1,'fs', fs, 'enable', 1, 'delay', 0, 'ampSelect', 1);
+        an_remaining = pulse_width - (full_pulses * clock_cycle);
+        next_seq = next_seq+1;
+        an_delay = floor(an_remaining / delay_length);
+        stim_cmd(thisChan).seq(next_seq) = struct('length', 1, 'ampl', nstim_steps(thisChan), 'pol', 1,'fs', fs, 'enable', 0, 'delay', an_delay, 'ampSelect', 1);
+    end;
+end
 end
 
 
